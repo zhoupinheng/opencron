@@ -45,7 +45,6 @@ import java.util.regex.Pattern;
 import org.opencron.common.job.Monitor;
 import org.opencron.common.utils.CommandUtils;
 import org.opencron.common.utils.DateUtils;
-import org.opencron.common.utils.LoggerFactory;
 import org.opencron.common.utils.ReflectUitls;
 import org.slf4j.Logger;
 
@@ -59,7 +58,7 @@ import com.corundumstudio.socketio.listener.DisconnectListener;
  * Created by benjobs on 16/4/7.
  */
 public class AgentMonitor {
-  private Logger logger = LoggerFactory.getLogger(AgentMonitor.class);
+  private Logger logger = org.slf4j.LoggerFactory.getLogger(AgentMonitor.class);
 
   private Format format = new DecimalFormat("##0.00");
 

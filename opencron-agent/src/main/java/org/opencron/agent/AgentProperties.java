@@ -28,8 +28,8 @@ import java.io.InputStream;
 import java.util.Enumeration;
 import java.util.Properties;
 
-import org.opencron.common.utils.LoggerFactory;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Utility class to read the bootstrap Opencron configuration.

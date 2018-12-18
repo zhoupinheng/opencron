@@ -19,295 +19,276 @@
  * under the License.
  */
 
-
 package org.opencron.server.domain;
 
-import javax.persistence.*;
 import java.io.Serializable;
 import java.util.Date;
+
+import javax.persistence.Column;
+import javax.persistence.Entity;
+import javax.persistence.GeneratedValue;
+import javax.persistence.Id;
+import javax.persistence.Lob;
+import javax.persistence.Table;
 
 @Entity
 @Table(name = "T_JOB")
 public class Job implements Serializable {
-    @Id
-    @GeneratedValue
-    private Long jobId;
-    private Long agentId;
-    private String jobName;
-    private Integer cronType;
-    private String cronExp;
+  @Id
+  @GeneratedValue
+  private Long jobId;
+  private Long agentId;
+  private String jobName;
+  private Integer cronType;
+  private String cronExp;
 
-    @Lob
-    @Column(columnDefinition="TEXT")
-    private String command;
-    
-    private Integer execType;
-    private String comment;
-    private String runAs;
-    private String successExit;
-    private Long userId;
-    private Date updateTime;
-    private Integer redo;
-    private Integer runCount;
+  @Lob
+  @Column(columnDefinition = "TEXT")
+  private String command;
 
-    /**
-     * 0:单一任务
-     * 1:流程任务
-     */
-    private Integer jobType;
+  private Integer execType;
+  private String comment;
+  private String runAs;
+  private String successExit;
+  private Long userId;
+  private Date updateTime;
+  private Integer redo;
+  private Integer runCount;
 
-    private Long flowId;
+  /**
+   * 0:单一任务 1:流程任务
+   */
+  private Integer jobType;
 
-    private Integer flowNum;
+  private Long flowId;
 
-    private Integer runModel;//0:串行|1:并行
+  private Integer flowNum;
 
-    //是否为流程任务的最后一个子任务
-    private Boolean lastChild;
+  private Integer runModel;// 0:串行|1:并行
 
-    private Boolean warning;
+  // 是否为流程任务的最后一个子任务
+  private Boolean lastChild;
 
-    private String mobiles;
+  private Boolean warning;
 
-    @Lob
-    @Column(columnDefinition="TEXT")
-    private String emailAddress;
+  private String mobiles;
 
-    private Boolean deleted;//是否删除
+  @Lob
+  @Column(columnDefinition = "TEXT")
+  private String emailAddress;
 
-    private Boolean pause;//任务是否暂停(true:已经暂停,false:未暂停)
+  private Boolean deleted;// 是否删除
 
-    //运行超时的截止时间
-    private Integer timeout;
+  private Boolean pause = Boolean.FALSE;// 任务是否暂停(true:已经暂停,false:未暂停)
 
+  // 运行超时的截止时间
+  private Integer timeout;
 
-    public Long getJobId() {
-        return jobId;
-    }
+  public Long getJobId() {
+    return jobId;
+  }
 
-    public void setJobId(Long jobId) {
-        this.jobId = jobId;
-    }
+  public void setJobId(Long jobId) {
+    this.jobId = jobId;
+  }
 
-    public Long getAgentId() {
-        return agentId;
-    }
+  public Long getAgentId() {
+    return agentId;
+  }
 
-    public void setAgentId(Long agentId) {
-        this.agentId = agentId;
-    }
+  public void setAgentId(Long agentId) {
+    this.agentId = agentId;
+  }
 
-    public String getJobName() {
-        return jobName;
-    }
+  public String getJobName() {
+    return jobName;
+  }
 
-    public void setJobName(String jobName) {
-        this.jobName = jobName;
-    }
+  public void setJobName(String jobName) {
+    this.jobName = jobName;
+  }
 
-    public Integer getCronType() {
-        return cronType;
-    }
+  public Integer getCronType() {
+    return cronType;
+  }
 
-    public void setCronType(Integer cronType) {
-        this.cronType = cronType;
-    }
+  public void setCronType(Integer cronType) {
+    this.cronType = cronType;
+  }
 
-    public String getCronExp() {
-        return cronExp;
-    }
+  public String getCronExp() {
+    return cronExp;
+  }
 
-    public void setCronExp(String cronExp) {
-        this.cronExp = cronExp;
-    }
+  public void setCronExp(String cronExp) {
+    this.cronExp = cronExp;
+  }
 
-    public String getCommand() {
-        return command;
-    }
+  public String getCommand() {
+    return command;
+  }
 
-    public void setCommand(String command) {
-        this.command = command;
-    }
+  public void setCommand(String command) {
+    this.command = command;
+  }
 
-    public Integer getExecType() {
-        return execType;
-    }
-
-    public void setExecType(Integer execType) {
-        this.execType = execType;
-    }
-
-    public String getComment() {
-        return comment;
-    }
-
-    public void setComment(String comment) {
-        this.comment = comment;
-    }
-
-    public String getRunAs() {
-        return runAs;
-    }
-
-    public void setRunAs(String runAs) {
-        this.runAs = runAs;
-    }
-
-    public String getSuccessExit() {
-        return successExit;
-    }
-
-    public void setSuccessExit(String successExit) {
-        this.successExit = successExit;
-    }
-
-    public Long getUserId() {
-        return userId;
-    }
-
-    public void setUserId(Long userId) {
-        this.userId = userId;
-    }
-
-    public Date getUpdateTime() {
-        return updateTime;
-    }
-
-    public void setUpdateTime(Date updateTime) {
-        this.updateTime = updateTime;
-    }
-
-    public Integer getRedo() {
-        return redo;
-    }
-
-    public void setRedo(Integer redo) {
-        this.redo = redo;
-    }
-
-    public Integer getRunCount() {
-        return runCount;
-    }
-
-    public void setRunCount(Integer runCount) {
-        this.runCount = runCount;
-    }
-
-    public Integer getJobType() {
-        return jobType;
-    }
-
-    public void setJobType(Integer jobType) {
-        this.jobType = jobType;
-    }
-
-    public Long getFlowId() {
-        return flowId;
-    }
-
-    public void setFlowId(Long flowId) {
-        this.flowId = flowId;
-    }
-
-    public Integer getFlowNum() {
-        return flowNum;
-    }
-
-    public void setFlowNum(Integer flowNum) {
-        this.flowNum = flowNum;
-    }
-
-    public Integer getRunModel() {
-        return runModel;
-    }
-
-    public void setRunModel(Integer runModel) {
-        this.runModel = runModel;
-    }
-
-    public Boolean getLastChild() {
-        return lastChild;
-    }
-
-    public void setLastChild(Boolean lastChild) {
-        this.lastChild = lastChild;
-    }
-
-    public Boolean getWarning() {
-        return warning;
-    }
-
-    public void setWarning(Boolean warning) {
-        this.warning = warning;
-    }
-
-    public String getMobiles() {
-        return mobiles;
-    }
-
-    public void setMobiles(String mobiles) {
-        this.mobiles = mobiles;
-    }
-
-    public String getEmailAddress() {
-        return emailAddress;
-    }
-
-    public void setEmailAddress(String emailAddress) {
-        this.emailAddress = emailAddress;
-    }
-
-    public Boolean getDeleted() {
-        return deleted;
-    }
-
-    public void setDeleted(Boolean deleted) {
-        this.deleted = deleted;
-    }
-
-    public Boolean getPause() {
-        return pause;
-    }
-
-    public void setPause(Boolean pause) {
-        this.pause = pause;
-    }
-
-    public Integer getTimeout() {
-        return timeout;
-    }
-
-    public void setTimeout(Integer timeout) {
-        this.timeout = timeout;
-    }
-
-    @Override
-    public String toString() {
-        return "Job{" +
-                "jobId=" + jobId +
-                ", agentId=" + agentId +
-                ", jobName='" + jobName + '\'' +
-                ", cronType=" + cronType +
-                ", cronExp='" + cronExp + '\'' +
-                ", command='" + command + '\'' +
-                ", execType=" + execType +
-                ", comment='" + comment + '\'' +
-                ", runAs='" + runAs + '\'' +
-                ", successExit='" + successExit + '\'' +
-                ", userId=" + userId +
-                ", updateTime=" + updateTime +
-                ", redo=" + redo +
-                ", runCount=" + runCount +
-                ", jobType=" + jobType +
-                ", flowId=" + flowId +
-                ", flowNum=" + flowNum +
-                ", runModel=" + runModel +
-                ", lastChild=" + lastChild +
-                ", warning=" + warning +
-                ", mobiles='" + mobiles + '\'' +
-                ", emailAddress='" + emailAddress + '\'' +
-                ", deleted=" + deleted +
-                ", timeout=" + timeout +
-                '}';
-    }
+  public Integer getExecType() {
+    return execType;
+  }
+
+  public void setExecType(Integer execType) {
+    this.execType = execType;
+  }
+
+  public String getComment() {
+    return comment;
+  }
+
+  public void setComment(String comment) {
+    this.comment = comment;
+  }
+
+  public String getRunAs() {
+    return runAs;
+  }
+
+  public void setRunAs(String runAs) {
+    this.runAs = runAs;
+  }
+
+  public String getSuccessExit() {
+    return successExit;
+  }
+
+  public void setSuccessExit(String successExit) {
+    this.successExit = successExit;
+  }
+
+  public Long getUserId() {
+    return userId;
+  }
+
+  public void setUserId(Long userId) {
+    this.userId = userId;
+  }
+
+  public Date getUpdateTime() {
+    return updateTime;
+  }
+
+  public void setUpdateTime(Date updateTime) {
+    this.updateTime = updateTime;
+  }
+
+  public Integer getRedo() {
+    return redo;
+  }
+
+  public void setRedo(Integer redo) {
+    this.redo = redo;
+  }
+
+  public Integer getRunCount() {
+    return runCount;
+  }
+
+  public void setRunCount(Integer runCount) {
+    this.runCount = runCount;
+  }
+
+  public Integer getJobType() {
+    return jobType;
+  }
+
+  public void setJobType(Integer jobType) {
+    this.jobType = jobType;
+  }
+
+  public Long getFlowId() {
+    return flowId;
+  }
+
+  public void setFlowId(Long flowId) {
+    this.flowId = flowId;
+  }
+
+  public Integer getFlowNum() {
+    return flowNum;
+  }
+
+  public void setFlowNum(Integer flowNum) {
+    this.flowNum = flowNum;
+  }
+
+  public Integer getRunModel() {
+    return runModel;
+  }
+
+  public void setRunModel(Integer runModel) {
+    this.runModel = runModel;
+  }
+
+  public Boolean getLastChild() {
+    return lastChild;
+  }
+
+  public void setLastChild(Boolean lastChild) {
+    this.lastChild = lastChild;
+  }
+
+  public Boolean getWarning() {
+    return warning;
+  }
+
+  public void setWarning(Boolean warning) {
+    this.warning = warning;
+  }
+
+  public String getMobiles() {
+    return mobiles;
+  }
+
+  public void setMobiles(String mobiles) {
+    this.mobiles = mobiles;
+  }
+
+  public String getEmailAddress() {
+    return emailAddress;
+  }
+
+  public void setEmailAddress(String emailAddress) {
+    this.emailAddress = emailAddress;
+  }
+
+  public Boolean getDeleted() {
+    return deleted;
+  }
+
+  public void setDeleted(Boolean deleted) {
+    this.deleted = deleted;
+  }
+
+  public Boolean getPause() {
+    return pause;
+  }
+
+  public void setPause(Boolean pause) {
+    this.pause = pause;
+  }
+
+  public Integer getTimeout() {
+    return timeout;
+  }
+
+  public void setTimeout(Integer timeout) {
+    this.timeout = timeout;
+  }
+
+  @Override
+  public String toString() {
+    return "Job{" + "jobId=" + jobId + ", agentId=" + agentId + ", jobName='" + jobName + '\'' + ", cronType=" + cronType + ", cronExp='" + cronExp + '\'' + ", command='" + command + '\''
+        + ", execType=" + execType + ", comment='" + comment + '\'' + ", runAs='" + runAs + '\'' + ", successExit='" + successExit + '\'' + ", userId=" + userId + ", updateTime=" + updateTime
+        + ", redo=" + redo + ", runCount=" + runCount + ", jobType=" + jobType + ", flowId=" + flowId + ", flowNum=" + flowNum + ", runModel=" + runModel + ", lastChild=" + lastChild + ", warning="
+        + warning + ", mobiles='" + mobiles + '\'' + ", emailAddress='" + emailAddress + '\'' + ", deleted=" + deleted + ", timeout=" + timeout + '}';
+  }
 }

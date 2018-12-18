@@ -21,93 +21,107 @@
 
 package org.opencron.server.job;
 
-import it.sauronsoftware.cron4j.*;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
 import org.opencron.common.job.Opencron;
 import org.opencron.common.utils.CommonUtils;
 import org.opencron.server.service.ExecuteService;
 import org.opencron.server.service.JobService;
 import org.opencron.server.vo.JobVo;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import it.sauronsoftware.cron4j.SchedulingPattern;
+import it.sauronsoftware.cron4j.Task;
+import it.sauronsoftware.cron4j.TaskCollector;
+import it.sauronsoftware.cron4j.TaskExecutionContext;
+import it.sauronsoftware.cron4j.TaskTable;
 
 /**
  * Created by benjobs on 16/3/28.
  */
 @Component
 public class OpencronCollector implements TaskCollector {
+  private final static Logger logger = LoggerFactory.getLogger(OpencronCollector.class);
 
-    @Autowired
-    private JobService jobService;
+  @Autowired
+  private JobService jobService;
 
-    @Autowired
-    private ExecuteService executeService;
+  @Autowired
+  private ExecuteService executeService;
 
-    private TaskTable taskTable;
+  private TaskTable taskTable;
 
-    private Map<Long, Integer> jobIndex = new ConcurrentHashMap<Long, Integer>(0);
+  private Map<Long, Integer> jobIndex = new ConcurrentHashMap<Long, Integer>(0);
 
-    /**
-     * 初始化crontab任务,记录每个任务的索引...
-     *
-     * @return
-     */
-    @Override
-    public synchronized TaskTable getTasks() {
-        if (taskTable == null) {
-            taskTable = new TaskTable();
-            List<JobVo> jobs = jobService.getCrontabJob();
-            for (int index = 0; index < jobs.size(); index++) {
-                final JobVo job = jobs.get(index);
-                jobIndex.put(job.getJobId(), index);
-                taskTable.add(new SchedulingPattern(job.getCronExp()), new Task() {
-                    @Override
-                    public void execute(TaskExecutionContext context) throws RuntimeException {
-                        //自动执行
-                        job.setExecType(Opencron.ExecType.AUTO.getStatus());
-                        executeService.executeJob(job);
-                    }
-                });
-            }
-        }
-        return taskTable;
-    }
-
-    /**
-     * 将当前的job加入到crontab定时计划,并且加入索引值
-     *
-     * @param job
-     */
-    public synchronized void addTask(final JobVo job) {
-        jobIndex.put(job.getJobId(), jobIndex.size());
+  /**
+   * 初始化crontab任务,记录每个任务的索引...
+   *
+   * @return
+   */
+  @Override
+  public synchronized TaskTable getTasks() {
+    logger.info("OpencronCollector.getTasks()-> start");
+    if (taskTable == null) {
+      taskTable = new TaskTable();
+      List<JobVo> jobs = jobService.getCrontabJob();
+      int jobCount = 0;
+      if (jobs != null) {
+        jobCount = jobs.size();
+      }
+      logger.info("OpencronCollector.getTasks()-> get Crontab Job from db, count:{}", new Object[] { String.valueOf(jobCount) });
+      for (int index = 0; index < jobs.size(); index++) {
+        final JobVo job = jobs.get(index);
+        jobIndex.put(job.getJobId(), index);
         taskTable.add(new SchedulingPattern(job.getCronExp()), new Task() {
-            @Override
-            public void execute(TaskExecutionContext context) throws RuntimeException {
-                //自动执行
-                job.setExecType(Opencron.ExecType.AUTO.getStatus());
-                executeService.executeJob(job);
-            }
+          @Override
+          public void execute(TaskExecutionContext context) throws RuntimeException {
+            // 自动执行
+            job.setExecType(Opencron.ExecType.AUTO.getStatus());
+            executeService.executeJob(job);
+          }
         });
+      }
     }
+    return taskTable;
+  }
 
-    public synchronized void removeTask(Long jobId) {
-        if (CommonUtils.notEmpty(jobId, jobIndex.get(jobId))) {
-            taskTable.remove(jobIndex.get(jobId));
-            Integer index = jobIndex.remove(jobId);
-            for (Map.Entry<Long, Integer> entry : jobIndex.entrySet()) {
-                Long key = entry.getKey();
-                Integer value = entry.getValue();
-                /**
-                 * 当前位置的索引已经被删除,后面的自动往前移一位...
-                 */
-                if (value > index) {
-                    jobIndex.put(key, value - 1);
-                }
-            }
+  /**
+   * 将当前的job加入到crontab定时计划,并且加入索引值
+   *
+   * @param job
+   */
+  public synchronized void addTask(final JobVo job) {
+    jobIndex.put(job.getJobId(), jobIndex.size());
+    taskTable.add(new SchedulingPattern(job.getCronExp()), new Task() {
+      @Override
+      public void execute(TaskExecutionContext context) throws RuntimeException {
+        // 自动执行
+        job.setExecType(Opencron.ExecType.AUTO.getStatus());
+        executeService.executeJob(job);
+      }
+    });
+  }
+
+  public synchronized void removeTask(Long jobId) {
+    if (CommonUtils.notEmpty(jobId, jobIndex.get(jobId))) {
+      taskTable.remove(jobIndex.get(jobId));
+      Integer index = jobIndex.remove(jobId);
+      for (Map.Entry<Long, Integer> entry : jobIndex.entrySet()) {
+        Long key = entry.getKey();
+        Integer value = entry.getValue();
+        /**
+         * 当前位置的索引已经被删除,后面的自动往前移一位...
+         */
+        if (value > index) {
+          jobIndex.put(key, value - 1);
         }
+      }
     }
+  }
 
 }

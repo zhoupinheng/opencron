@@ -55,8 +55,8 @@ import org.apache.thrift.transport.TSocket;
 import org.apache.thrift.transport.TTransport;
 import org.opencron.common.job.Opencron;
 import org.opencron.common.utils.IOUtils;
-import org.opencron.common.utils.LoggerFactory;
 import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class Bootstrap implements Serializable {
   private static final long serialVersionUID = 20150614L;

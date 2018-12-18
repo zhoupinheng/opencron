@@ -122,6 +122,7 @@ public class ExecuteService implements Job {
    * 单一任务执行过程
    */
   private boolean executeSingleJob(JobVo job, Long userId) {
+    this.loggerInfo("[opencron] executeSingleJob()->job:{} at {}:{},user:{}start execute", job, String.valueOf(userId));
 
     if (!checkJobPermission(job.getAgentId(), userId))
       return false;
@@ -161,6 +162,8 @@ public class ExecuteService implements Job {
    * 流程任务 按流程任务处理方式区分
    */
   private boolean executeFlowJob(JobVo job) {
+    this.loggerInfo("[opencron] executeFlowJob()->job:{} at {}:{},{}start execute", job, "");
+
     if (!checkJobPermission(job.getAgentId(), job.getUserId()))
       return false;
 
@@ -195,6 +198,8 @@ public class ExecuteService implements Job {
    * 并行任务处理方式
    */
   private boolean executeSameTimeJob(final long groupId, final Queue<JobVo> jobQueue) {
+    logger.info("[opencron] executeSameTimeJob()-> group Id:{} start execute", String.valueOf(groupId));
+
     final List<Boolean> result = new ArrayList<Boolean>(0);
 
     final Semaphore semaphore = new Semaphore(jobQueue.size());
@@ -228,6 +233,8 @@ public class ExecuteService implements Job {
    * 流程任务（通用）执行过程
    */
   private boolean doFlowJob(JobVo job, long groupId) {
+    this.loggerInfo("[opencron] doFlowJob()->job:{} at {}:{},group id:{}start execute", job, String.valueOf(groupId));
+
     Record record = new Record(job);
     record.setGroupId(groupId);// 组Id
     record.setJobType(JobType.FLOW.getCode());// 流程任务
@@ -345,6 +352,7 @@ public class ExecuteService implements Job {
    * 失败任务的重执行过程
    */
   public boolean reExecuteJob(final Record parentRecord, JobVo job, JobType jobType) {
+    this.loggerInfo("[opencron] reExecuteJob()->job:{} at {}:{},{}start execute", job, "");
 
     if (parentRecord.getRedoCount().equals(reExecuteThreadMap.get(parentRecord.getRecordId()))) {
       return false;
