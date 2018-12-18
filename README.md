@@ -51,7 +51,7 @@ IE10+
 ```
 
 1)下载源码: 
-> git clone https://github.com/wolfboys/opencron.git
+> git clone https://github.com/zhoupinheng/opencron.git
 
 2):修改server端的jdbc连接信息
    1:创建数据,数据库名字可以是opencron或者其他
