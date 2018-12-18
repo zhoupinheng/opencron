@@ -36,7 +36,6 @@ import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
-
 public class TerminalHandler extends TextWebSocketHandler {
 
 	private TerminalClient terminalClient;

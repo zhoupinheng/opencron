@@ -50,10 +50,10 @@ used=$(($total - $free1 - $free2 - $free3));
 mem=$(echo  "{total:$total,used:$used}");
 
 #conf
-#修复ubuntu系统下os名存在\n \l导致解析失败的bug
+#修�?ubuntu系统下os�??存在\n \l导致解�?失败的bug
 hostname=$(echo `hostname`|sed 's/\\.//g');
 os=$(echo `head -n 1 /etc/issue`|sed 's/\\.//g');
-#修复系统版本7.0之后获取os失败问题
+#修�?系统版本7.0之�?�获�?�os失败问题
 if [ -z "$os" ];then
  os=$(echo `cat /etc/redhat-release`|sed 's/\\.//g');
 fi

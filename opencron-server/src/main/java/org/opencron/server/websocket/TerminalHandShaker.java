@@ -50,7 +50,7 @@ public class TerminalHandShaker extends HttpSessionHandshakeInterceptor {
         }
         return super.beforeHandshake(request,response,wsHandler,attributes);
     }
-
+    
     @Override
     public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response, WebSocketHandler wsHandler, Exception exception) {
         super.afterHandshake(request,response,wsHandler,exception);

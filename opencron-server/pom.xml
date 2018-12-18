@@ -72,6 +72,13 @@
             <scope>provided</scope>
         </dependency>
 
+<dependency>
+    <groupId>org.slf4j</groupId>
+    <artifactId>jcl-over-slf4j</artifactId>
+    <version>1.7.21</version>
+</dependency>
+
+
     </dependencies>
 
     <build>
@@ -128,6 +135,12 @@
                             <artifactId>javax.servlet-api</artifactId>
                             <outputDirectory>${basedir}/work/jetty</outputDirectory>
                         </dependency>
+
+												<dependency>
+												    <groupId>org.slf4j</groupId>
+												    <artifactId>jcl-over-slf4j</artifactId>
+												    <version>1.7.21</version>
+												</dependency>
 
                         <dependency>
                             <groupId>javax.servlet.jsp</groupId>

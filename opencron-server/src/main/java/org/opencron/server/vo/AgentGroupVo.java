@@ -4,7 +4,6 @@ package org.opencron.server.vo;
  * Created by th on 2017/5/18.
  */
 public class AgentGroupVo {
-
     private Long groupId;
     private String groupName;
     private Long agentId;

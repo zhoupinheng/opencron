@@ -21,9 +21,6 @@
 
 package org.opencron.agent;
 
-import org.opencron.common.utils.LoggerFactory;
-import org.slf4j.Logger;
-
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -31,6 +28,8 @@ import java.io.InputStream;
 import java.util.Enumeration;
 import java.util.Properties;
 
+import org.opencron.common.utils.LoggerFactory;
+import org.slf4j.Logger;
 
 /**
  * Utility class to read the bootstrap Opencron configuration.
@@ -38,85 +37,83 @@ import java.util.Properties;
  * @author benjobs.
  */
 public class AgentProperties {
+  private static final Logger logger = LoggerFactory.getLogger(AgentProperties.class);
 
-    private static final Logger logger = LoggerFactory.getLogger(AgentProperties.class);
+  private static Properties properties = null;
 
-    private static Properties properties = null;
+  /**
+   * @param name
+   *          The property name
+   * @return specified property value
+   */
+  public static String getProperty(String name) {
+    if (properties == null) {
+      loadProperties();
+    }
+    return properties.getProperty(name);
+  }
 
-    /**
-     * @param name The property name
-     * @return specified property value
-     */
-    public static String getProperty(String name) {
-        if ( properties == null ) {
-            loadProperties();
-        }
-        return properties.getProperty(name);
+  /**
+   * Load properties.
+   */
+  private static void loadProperties() {
+
+    InputStream is = null;
+
+    String fileName = "conf.properties";
+
+    try {
+      File home = new File(Configuration.OPENCRON_HOME);
+      File conf = new File(home, "conf");
+      File propsFile = new File(conf, fileName);
+      is = new FileInputStream(propsFile);
+    } catch (Throwable t) {
+      handleThrowable(t);
     }
 
-    /**
-     * Load properties.
-     */
-    private static void loadProperties() {
-
-        InputStream is = null;
-
-        String fileName = "conf.properties";
-
+    if (is != null) {
+      try {
+        properties = new Properties();
+        properties.load(is);
+      } catch (Throwable t) {
+        handleThrowable(t);
+        logger.warn("[opencron] init properties error:{}", t.getMessage());
+      } finally {
         try {
-            File home = new File(Configuration.OPENCRON_HOME);
-            File conf = new File(home, "conf");
-            File propsFile = new File(conf, fileName);
-            is = new FileInputStream(propsFile);
-        } catch (Throwable t) {
-            handleThrowable(t);
+          is.close();
+        } catch (IOException ioe) {
+          logger.warn("[opencron]Could not close opencron properties file", ioe);
         }
-
-        if (is != null) {
-            try {
-                properties = new Properties();
-                properties.load(is);
-            } catch (Throwable t) {
-                handleThrowable(t);
-                logger.warn("[opencron] init properties error:{}",t.getMessage());
-            } finally {
-                try {
-                    is.close();
-                } catch (IOException ioe) {
-                    logger.warn("[opencron]Could not close opencron properties file", ioe);
-                }
-            }
-        }
-
-        if (is == null) {
-            // Do something
-            logger.warn("[opencron]Failed to load opencron properties file");
-            // That's fine - we have reasonable defaults.
-            properties = new Properties();
-        }
-
-        // Register the properties as system properties
-        Enumeration<?> enumeration = properties.propertyNames();
-        while (enumeration.hasMoreElements()) {
-            String name = (String) enumeration.nextElement();
-            String value = properties.getProperty(name);
-            if (value != null) {
-                System.setProperty(name, value);
-            }
-        }
+      }
     }
 
-
-    // Copied from ExceptionUtils since that class is not visible during start
-    private static void handleThrowable(Throwable t) {
-        if (t instanceof ThreadDeath) {
-            throw (ThreadDeath) t;
-        }
-        if (t instanceof VirtualMachineError) {
-            throw (VirtualMachineError) t;
-        }
-        // All other instances of Throwable will be silently swallowed
+    if (is == null) {
+      // Do something
+      logger.warn("[opencron]Failed to load opencron properties file");
+      // That's fine - we have reasonable defaults.
+      properties = new Properties();
     }
 
+    // Register the properties as system properties
+    Enumeration<?> enumeration = properties.propertyNames();
+    while (enumeration.hasMoreElements()) {
+      String name = (String) enumeration.nextElement();
+      String value = properties.getProperty(name);
+      if (value != null) {
+        System.setProperty(name, value);
+      }
+    }
+  }
+
+  // Copied from ExceptionUtils since that class is not visible during start
+  private static void handleThrowable(Throwable t) {
+    if (t instanceof ThreadDeath) {
+      throw (ThreadDeath) t;
+    }
+    if (t instanceof VirtualMachineError) {
+      throw (VirtualMachineError) t;
+    }
+    // All other instances of Throwable will be silently swallowed
+  }
 
 }

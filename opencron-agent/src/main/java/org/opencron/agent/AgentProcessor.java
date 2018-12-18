@@ -19,20 +19,12 @@
  * under the License.
  */
 
-
 package org.opencron.agent;
 
-import com.alibaba.fastjson.JSON;
-import com.alibaba.fastjson.JSONObject;
-import org.apache.commons.exec.*;
-import org.apache.thrift.TException;
-import org.apache.thrift.protocol.TBinaryProtocol;
-import org.apache.thrift.protocol.TProtocol;
-import org.apache.thrift.transport.TSocket;
-import org.apache.thrift.transport.TTransport;
-import org.opencron.common.job.*;
-import org.opencron.common.utils.*;
-import org.slf4j.Logger;
+import static org.opencron.common.utils.CommonUtils.isEmpty;
+import static org.opencron.common.utils.CommonUtils.isPrototype;
+import static org.opencron.common.utils.CommonUtils.notEmpty;
+import static org.opencron.common.utils.CommonUtils.toInt;
 
 import java.beans.Introspector;
 import java.beans.PropertyDescriptor;
@@ -42,538 +34,558 @@ import java.io.IOException;
 import java.io.ObjectOutputStream;
 import java.lang.reflect.Method;
 import java.net.Socket;
-import java.util.*;
+import java.util.Collections;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Timer;
+import java.util.TimerTask;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static org.opencron.common.utils.CommonUtils.*;
+import org.apache.commons.exec.CommandLine;
+import org.apache.commons.exec.DefaultExecuteResultHandler;
+import org.apache.commons.exec.DefaultExecutor;
+import org.apache.commons.exec.ExecuteException;
+import org.apache.commons.exec.ExecuteStreamHandler;
+import org.apache.commons.exec.ExecuteWatchdog;
+import org.apache.commons.exec.PumpStreamHandler;
+import org.apache.thrift.TException;
+import org.apache.thrift.protocol.TBinaryProtocol;
+import org.apache.thrift.protocol.TProtocol;
+import org.apache.thrift.transport.TSocket;
+import org.apache.thrift.transport.TTransport;
+import org.opencron.common.job.Action;
+import org.opencron.common.job.Monitor;
+import org.opencron.common.job.Opencron;
+import org.opencron.common.job.Request;
+import org.opencron.common.job.Response;
+import org.opencron.common.utils.CommandUtils;
+import org.opencron.common.utils.CommonUtils;
+import org.opencron.common.utils.HttpClientUtils;
+import org.opencron.common.utils.IOUtils;
+import org.opencron.common.utils.LoggerFactory;
+import org.opencron.common.utils.MacUtils;
+import org.opencron.common.utils.ReflectUitls;
+import org.opencron.common.utils.StringUtils;
+import org.slf4j.Logger;
+
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
 
 /**
  * Created by benjo on 2016/3/25.
  */
 public class AgentProcessor implements Opencron.Iface {
+  private Logger logger = LoggerFactory.getLogger(AgentProcessor.class);
 
-    private Logger logger = LoggerFactory.getLogger(AgentProcessor.class);
+  private String password;
 
-    private String password;
+  private final String REPLACE_REX = "%s:\\sline\\s[0-9]+:";
 
-    private final String REPLACE_REX = "%s:\\sline\\s[0-9]+:";
+  private String EXITCODE_KEY = "exitCode";
 
-    private String EXITCODE_KEY = "exitCode";
+  private String EXITCODE_SCRIPT = String.format("\n\necho %s:$?", EXITCODE_KEY);
 
-    private String EXITCODE_SCRIPT = String.format("\n\necho %s:$?", EXITCODE_KEY);
+  private AgentMonitor agentMonitor;
 
-    private AgentMonitor agentMonitor;
+  private Map<String, AgentHeartBeat> agentHeartBeatMap = new ConcurrentHashMap<String, AgentHeartBeat>(0);
 
-    private Map<String, AgentHeartBeat> agentHeartBeatMap = new ConcurrentHashMap<String, AgentHeartBeat>(0);
+  public AgentProcessor(String password) {
+    this.password = password;
+    this.agentMonitor = new AgentMonitor();
+  }
 
-    public AgentProcessor(String password) {
-        this.password = password;
-        this.agentMonitor = new AgentMonitor();
+  @Override
+  public Response ping(Request request) throws TException {
+    if (!this.password.equalsIgnoreCase(request.getPassword())) {
+      return errorPasswordResponse(request);
     }
 
-    @Override
-    public Response ping(Request request) throws TException {
-        if (!this.password.equalsIgnoreCase(request.getPassword())) {
-            return errorPasswordResponse(request);
-        }
+    // 非直连
+    if (CommonUtils.isEmpty(request.getParams().get("proxy"))) {
+      String hostName = Configuration.OPENCRON_SOCKET_ADDRESS.split(":")[0];
+      int serverPort = Integer.parseInt(request.getParams().get("serverPort"));
 
-        //非直连
-        if ( CommonUtils.isEmpty(request.getParams().get("proxy")) ) {
-            String hostName = Configuration.OPENCRON_SOCKET_ADDRESS.split(":")[0];
-            int serverPort = Integer.parseInt(request.getParams().get("serverPort"));
-
-            AgentHeartBeat agentHeartBeat = agentHeartBeatMap.get(hostName);
-            if (agentHeartBeat == null) {
-                try {
-                    agentHeartBeat = new AgentHeartBeat(hostName, serverPort, request.getHostName());
-                    agentHeartBeat.start();
-                    agentHeartBeatMap.put(hostName, agentHeartBeat);
-                    logger.info("[opencron]:ping ip:{},port:{}", hostName, serverPort);
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-
-        return Response.response(request).setSuccess(true).setExitCode(Opencron.StatusCode.SUCCESS_EXIT.getValue()).end();
-    }
-
-    @Override
-    public Response path(Request request) throws TException {
-        //返回密码文件的路径...
-        return Response.response(request).setSuccess(true)
-                .setExitCode(Opencron.StatusCode.SUCCESS_EXIT.getValue())
-                .setMessage(Configuration.OPENCRON_HOME)
-                .end();
-    }
-
-    @Override
-    public Response monitor(Request request) throws TException {
-        Opencron.ConnType connType = Opencron.ConnType.getByName(request.getParams().get("connType"));
-        Response response = Response.response(request);
-        switch (connType) {
-            case PROXY:
-                Monitor monitor = agentMonitor.monitor();
-                Map<String, String> map  = serializableToMap(monitor);
-                response.setResult(map);
-                return response;
-            default:
-                return null;
-        }
-    }
-
-    @Override
-    public Response execute(final Request request) throws TException {
-
-        if (!this.password.equalsIgnoreCase(request.getPassword())) {
-            return errorPasswordResponse(request);
-        }
-
-        String command = request.getParams().get("command");
-
-        String pid = request.getParams().get("pid");
-        //以分钟为单位
-        Long timeout = CommonUtils.toLong(request.getParams().get("timeout"), 0L);
-
-        boolean timeoutFlag = timeout > 0;
-
-        logger.info("[opencron]:execute:{},pid:{}", command, pid);
-
-        File shellFile = CommandUtils.createShellFile(command,pid,request.getParams().get("runAs"),EXITCODE_SCRIPT);
-
-        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-
-        final Response response = Response.response(request);
-
-        final ExecuteWatchdog watchdog = new ExecuteWatchdog(Integer.MAX_VALUE);
-
-        final Timer timer = new Timer();
-
-        DefaultExecuteResultHandler resultHandler = new DefaultExecuteResultHandler();
-
-        Integer exitValue;
-
-        String successExit = request.getParams().get("successExit");
-        if (CommonUtils.isEmpty(successExit)) {
-            exitValue = 0;//标准退住值:0
-        }else {
-            exitValue = Integer.parseInt(successExit);
-        }
-
+      AgentHeartBeat agentHeartBeat = agentHeartBeatMap.get(hostName);
+      if (agentHeartBeat == null) {
         try {
-
-            CommandLine commandLine = CommandLine.parse(String.format("/bin/bash +x %s",shellFile.getAbsoluteFile()));
-
-            final DefaultExecutor executor = new DefaultExecutor();
-
-            ExecuteStreamHandler stream = new PumpStreamHandler(outputStream, outputStream);
-            executor.setStreamHandler(stream);
-            response.setStartTime(new Date().getTime());
-            //成功执行完毕时退出值为0,shell标准的退出
-            executor.setExitValue(exitValue);
-
-            if (timeoutFlag) {
-                //设置监控狗...
-                executor.setWatchdog(watchdog);
-                //监控超时的计时器
-                timer.schedule(new TimerTask() {
-                    @Override
-                    public void run() {
-                        //超时,kill...
-                        if (watchdog.isWatching()) {
-                            /**
-                             * 调用watchdog的destroyProcess无法真正kill进程...
-                             * watchdog.destroyProcess();
-                             */
-                            timer.cancel();
-                            watchdog.stop();
-                            //call  kill...
-                            request.setAction(Action.KILL);
-                            try {
-                                kill(request);
-                                response.setExitCode(Opencron.StatusCode.TIME_OUT.getValue());
-                            } catch (TException e) {
-                                e.printStackTrace();
-                            }
-
-                        }
-                    }
-                }, timeout * 60 * 1000);
-
-                //正常执行完毕则清除计时器
-                resultHandler = new DefaultExecuteResultHandler() {
-                    @Override
-                    public void onProcessComplete(int exitValue) {
-                        super.onProcessComplete(exitValue);
-                        timer.cancel();
-                    }
-
-                    @Override
-                    public void onProcessFailed(ExecuteException e) {
-                        super.onProcessFailed(e);
-                        timer.cancel();
-                    }
-                };
-            }
-
-            executor.execute(commandLine, resultHandler);
-
-            resultHandler.waitFor();
-
-        } catch (Exception e) {
-            if (e instanceof ExecuteException) {
-                exitValue = ((ExecuteException) e).getExitValue();
-            } else {
-                exitValue = Opencron.StatusCode.ERROR_EXEC.getValue();
-            }
-            if (Opencron.StatusCode.KILL.getValue().equals(exitValue)) {
-                if (timeoutFlag) {
-                    timer.cancel();
-                    watchdog.stop();
-                }
-                logger.info("[opencron]:job has be killed!at pid :{}", request.getParams().get("pid"));
-            } else {
-                logger.info("[opencron]:job execute error:{}", e.getCause().getMessage());
-            }
-        } finally {
-
-            exitValue = resultHandler.getExitValue();
-
-            if (CommonUtils.notEmpty(outputStream.toByteArray())) {
-                try {
-                    outputStream.flush();
-                    String text = outputStream.toString();
-                    if (notEmpty(text)) {
-                        try {
-                            text = text.replaceAll(String.format(REPLACE_REX, shellFile.getAbsolutePath()), "");
-                            response.setMessage(text.substring(0, text.lastIndexOf(EXITCODE_KEY)));
-                            exitValue = Integer.parseInt(text.substring(text.lastIndexOf(EXITCODE_KEY) + EXITCODE_KEY.length() + 1).trim());
-                        } catch (IndexOutOfBoundsException e) {
-                            response.setMessage(text);
-                        }
-                    }
-                    outputStream.close();
-                } catch (Exception e) {
-                    logger.error("[opencron]:error:{}", e);
-                }
-            }
-
-            if (Opencron.StatusCode.TIME_OUT.getValue() == response.getExitCode()) {
-                response.setSuccess(false).end();
-            } else {
-                if (CommonUtils.isEmpty(successExit)) {
-                    response.setExitCode(exitValue).setSuccess(exitValue == Opencron.StatusCode.SUCCESS_EXIT.getValue()).end();
-                }else {
-                    response.setExitCode(exitValue).setSuccess(successExit.equals(exitValue.toString())).end();
-                }
-            }
-
-        }
-
-        if (CommonUtils.notEmpty(shellFile)) {
-            shellFile.delete();
-        }
-
-        logger.info("[opencron]:execute result:{}", response.toString());
-
-        watchdog.stop();
-
-        return response;
-    }
-
-    @Override
-    public Response password(Request request) throws TException {
-        if (!this.password.equalsIgnoreCase(request.getPassword())) {
-            return errorPasswordResponse(request);
-        }
-
-        String newPassword = request.getParams().get("newPassword");
-        Response response = Response.response(request);
-
-        if (isEmpty(newPassword)) {
-            return response.setSuccess(false).setExitCode(Opencron.StatusCode.SUCCESS_EXIT.getValue()).setMessage("密码不能为空").end();
-        }
-        this.password = newPassword.toLowerCase().trim();
-
-        IOUtils.writeText(Configuration.OPENCRON_PASSWORD_FILE, this.password, "UTF-8");
-
-        return response.setSuccess(true).setExitCode(Opencron.StatusCode.SUCCESS_EXIT.getValue()).end();
-    }
-
-    @Override
-    public Response kill(Request request) throws TException {
-
-        if (!this.password.equalsIgnoreCase(request.getPassword())) {
-            return errorPasswordResponse(request);
-        }
-
-        String pid = request.getParams().get("pid");
-        logger.info("[opencron]:kill pid:{}", pid);
-
-        Response response = Response.response(request);
-        String text = CommandUtils.executeShell(Configuration.OPENCRON_KILL_SHELL, pid, EXITCODE_SCRIPT);
-        String message = "";
-        Integer exitVal = 0;
-
-        if (notEmpty(text)) {
-            try {
-                message = text.substring(0, text.lastIndexOf(EXITCODE_KEY));
-                exitVal = Integer.parseInt(text.substring(text.lastIndexOf(EXITCODE_KEY) + EXITCODE_KEY.length() + 1).trim());
-            } catch (StringIndexOutOfBoundsException e) {
-                message = text;
-            }
-        }
-
-        response.setExitCode(Opencron.StatusCode.ERROR_EXIT.getValue().equals(exitVal) ? Opencron.StatusCode.ERROR_EXIT.getValue() : Opencron.StatusCode.SUCCESS_EXIT.getValue())
-                .setMessage(message)
-                .end();
-
-        logger.info("[opencron]:kill result:{}" + response);
-        return response;
-    }
-
-    @Override
-    public Response proxy(Request request) throws TException {
-        String proxyHost = request.getParams().get("proxyHost");
-        String proxyPort = request.getParams().get("proxyPort");
-        String proxyAction = request.getParams().get("proxyAction");
-        String proxyPassword = request.getParams().get("proxyPassword");
-
-        //其他参数....
-        String proxyParams = request.getParams().get("proxyParams");
-        Map<String, String> params = new HashMap<String, String>(0);
-        if (CommonUtils.notEmpty(proxyParams)) {
-            params = (Map<String, String>) JSON.parse(proxyParams);
-        }
-
-        Request proxyReq = Request.request(proxyHost, toInt(proxyPort), Action.findByName(proxyAction), proxyPassword).setParams(params);
-
-        logger.info("[opencron]proxy params:{}", proxyReq.toString());
-
-        TTransport transport;
-        /**
-         * ping的超时设置为5毫秒,其他默认
-         */
-        if (proxyReq.getAction().equals(Action.PING)) {
-            proxyReq.getParams().put("proxy","true");
-            transport = new TSocket(proxyReq.getHostName(), proxyReq.getPort(), 1000 * 5);
-        } else {
-            transport = new TSocket(proxyReq.getHostName(), proxyReq.getPort());
-        }
-        TProtocol protocol = new TBinaryProtocol(transport);
-        Opencron.Client client = new Opencron.Client(protocol);
-        transport.open();
-
-        Response response = null;
-        for (Method method : client.getClass().getMethods()) {
-            if (method.getName().equalsIgnoreCase(proxyReq.getAction().name())) {
-                try {
-                    response = (Response) method.invoke(client, proxyReq);
-                } catch (Exception e) {
-                    //proxy 执行失败,返回失败信息
-                    response = Response.response(request);
-                    response.setExitCode(Opencron.StatusCode.ERROR_EXIT.getValue())
-                            .setMessage("[opencron]:proxy error:"+e.getLocalizedMessage())
-                            .setSuccess(false)
-                            .end();
-                }
-                break;
-            }
-        }
-        transport.flush();
-        transport.close();
-        return response;
-    }
-
-    @Override
-    public Response guid(Request request) throws TException {
-        if (!this.password.equalsIgnoreCase(request.getPassword())) {
-            return errorPasswordResponse(request);
-        }
-        String macId = null;
-        try {
-            //多个网卡地址,按照字典顺序把他们连接在一块,用-分割.
-            List<String> macIds = MacUtils.getMacAddressList();
-            if (CommonUtils.notEmpty(macIds)) {
-                TreeSet<String> macSet = new TreeSet<String>(macIds);
-                macId = StringUtils.joinString(macSet,"-");
-            }
+          agentHeartBeat = new AgentHeartBeat(hostName, serverPort, request.getHostName());
+          agentHeartBeat.start();
+          agentHeartBeatMap.put(hostName, agentHeartBeat);
+          logger.info("[opencron]:ping ip:{},port:{}", hostName, serverPort);
         } catch (IOException e) {
-            logger.error("[opencron]:getMac error:{}",e);
+          e.printStackTrace();
         }
-
-        Response response = Response.response(request).end();
-        if (notEmpty(macId)) {
-            return response.setMessage(macId).setSuccess(true).setExitCode(Opencron.StatusCode.SUCCESS_EXIT.getValue());
-        }
-        return response.setSuccess(false).setExitCode(Opencron.StatusCode.ERROR_EXIT.getValue());
+      }
     }
 
+    return Response.response(request).setSuccess(true).setExitCode(Opencron.StatusCode.SUCCESS_EXIT.getValue()).end();
+  }
 
-    /**
-     *重启前先检查密码,密码不正确返回Response,密码正确则直接执行重启
-     * @param request
-     * @return
-     * @throws TException
-     * @throws InterruptedException
-     */
-    @Override
-    public void restart(Request request) throws TException {
+  @Override
+  public Response path(Request request) throws TException {
+    // 返回密码文件的路径...
+    return Response.response(request).setSuccess(true).setExitCode(Opencron.StatusCode.SUCCESS_EXIT.getValue()).setMessage(Configuration.OPENCRON_HOME).end();
+  }
 
+  @Override
+  public Response monitor(Request request) throws TException {
+    Opencron.ConnType connType = Opencron.ConnType.getByName(request.getParams().get("connType"));
+    Response response = Response.response(request);
+    switch (connType) {
+    case PROXY:
+      Monitor monitor = agentMonitor.monitor();
+      Map<String, String> map = serializableToMap(monitor);
+      response.setResult(map);
+      return response;
+    default:
+      return null;
+    }
+  }
+
+  @Override
+  public Response execute(final Request request) throws TException {
+
+    if (!this.password.equalsIgnoreCase(request.getPassword())) {
+      return errorPasswordResponse(request);
     }
 
-    private Response errorPasswordResponse(Request request) {
-        return Response.response(request)
-                .setSuccess(false)
-                .setExitCode(Opencron.StatusCode.ERROR_PASSWORD.getValue())
-                .setMessage(Opencron.StatusCode.ERROR_PASSWORD.getDescription())
-                .end();
+    String command = request.getParams().get("command");
+
+    String pid = request.getParams().get("pid");
+    // 以分钟为单位
+    Long timeout = CommonUtils.toLong(request.getParams().get("timeout"), 0L);
+
+    boolean timeoutFlag = timeout > 0;
+
+    logger.info("[opencron]:execute:{},pid:{}", command, pid);
+
+    File shellFile = CommandUtils.createShellFile(command, pid, request.getParams().get("runAs"), EXITCODE_SCRIPT);
+
+    ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+    final Response response = Response.response(request);
+
+    final ExecuteWatchdog watchdog = new ExecuteWatchdog(Integer.MAX_VALUE);
+
+    final Timer timer = new Timer();
+
+    DefaultExecuteResultHandler resultHandler = new DefaultExecuteResultHandler();
+
+    Integer exitValue;
+
+    String successExit = request.getParams().get("successExit");
+    if (CommonUtils.isEmpty(successExit)) {
+      exitValue = 0;// 标准退住值:0
+    } else {
+      exitValue = Integer.parseInt(successExit);
     }
 
-    private Map<String, String> serializableToMap(Object obj) {
-        if (isEmpty(obj)) {
-            return Collections.EMPTY_MAP;
-        }
+    try {
 
-        Map<String, String> resultMap = new HashMap<String, String>(0);
-        // 拿到属性器数组
-        try {
-            PropertyDescriptor[] pds = Introspector.getBeanInfo(obj.getClass()).getPropertyDescriptors();
-            for (int index = 0; pds.length > 1 && index < pds.length; index++) {
-                if (Class.class == pds[index].getPropertyType() || pds[index].getReadMethod() == null) {
-                    continue;
-                }
-                Object value = pds[index].getReadMethod().invoke(obj);
-                if (notEmpty(value)) {
-                    if (isPrototype(pds[index].getPropertyType())//java里的原始类型(去除自己定义类型)
-                            || pds[index].getPropertyType().isPrimitive()//基本类型
-                            || ReflectUitls.isPrimitivePackageType(pds[index].getPropertyType())
-                            || pds[index].getPropertyType() == String.class) {
+      CommandLine commandLine = CommandLine.parse(String.format("/bin/bash +x %s", shellFile.getAbsoluteFile()));
 
-                        resultMap.put(pds[index].getName(), value.toString());
+      final DefaultExecutor executor = new DefaultExecutor();
 
-                    } else {
-                        resultMap.put(pds[index].getName(), JSON.toJSONString(value));
-                    }
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-        return resultMap;
-    }
+      ExecuteStreamHandler stream = new PumpStreamHandler(outputStream, outputStream);
+      executor.setStreamHandler(stream);
+      response.setStartTime(new Date().getTime());
+      // 成功执行完毕时退出值为0,shell标准的退出
+      executor.setExitValue(exitValue);
 
-    public boolean register() {
-        if (CommonUtils.notEmpty(Configuration.OPENCRON_SERVER)) {
-            String url = Configuration.OPENCRON_SERVER+"/agent/autoreg.do";
-            String mac = MacUtils.getMacAddress();
-            String agentPassword = IOUtils.readText(Configuration.OPENCRON_PASSWORD_FILE, "UTF-8").trim().toLowerCase();
-
-            Map<String,Object> params = new HashMap<String, Object>(0);
-            params.put("machineId",mac);
-            params.put("password",agentPassword);
-            params.put("port", Configuration.OPENCRON_PORT);
-            params.put("key", Configuration.OPENCRON_REGKEY);
-
-            logger.info("[opencron]agent auto register staring:{}", Configuration.OPENCRON_SERVER);
-            try {
-                String result = HttpClientUtils.httpPostRequest(url,params);
-                if (result==null) {
-                    return false;
-                }
-                JSONObject jsonObject = JSON.parseObject(result);
-                if (jsonObject.get("status").toString().equals("200")) {
-                    return true;
-                }
-                logger.error("[opencron:agent auto regsiter error:{}]",jsonObject.get("message"));
-            } catch (Exception e) {
+      if (timeoutFlag) {
+        // 设置监控狗...
+        executor.setWatchdog(watchdog);
+        // 监控超时的计时器
+        timer.schedule(new TimerTask() {
+          @Override
+          public void run() {
+            // 超时,kill...
+            if (watchdog.isWatching()) {
+              /**
+               * 调用watchdog的destroyProcess无法真正kill进程... watchdog.destroyProcess();
+               */
+              timer.cancel();
+              watchdog.stop();
+              // call kill...
+              request.setAction(Action.KILL);
+              try {
+                kill(request);
+                response.setExitCode(Opencron.StatusCode.TIME_OUT.getValue());
+              } catch (TException e) {
                 e.printStackTrace();
-                return false;
+              }
+
             }
+          }
+        }, timeout * 60 * 1000);
+
+        // 正常执行完毕则清除计时器
+        resultHandler = new DefaultExecuteResultHandler() {
+          @Override
+          public void onProcessComplete(int exitValue) {
+            super.onProcessComplete(exitValue);
+            timer.cancel();
+          }
+
+          @Override
+          public void onProcessFailed(ExecuteException e) {
+            super.onProcessFailed(e);
+            timer.cancel();
+          }
+        };
+      }
+
+      executor.execute(commandLine, resultHandler);
+
+      resultHandler.waitFor();
+
+    } catch (Exception e) {
+      if (e instanceof ExecuteException) {
+        exitValue = ((ExecuteException) e).getExitValue();
+      } else {
+        exitValue = Opencron.StatusCode.ERROR_EXEC.getValue();
+      }
+      if (Opencron.StatusCode.KILL.getValue().equals(exitValue)) {
+        if (timeoutFlag) {
+          timer.cancel();
+          watchdog.stop();
         }
+        logger.info("[opencron]:job has be killed!at pid :{}", request.getParams().get("pid"));
+      } else {
+        logger.info("[opencron]:job execute error:{}", e.getCause().getMessage());
+      }
+    } finally {
+
+      exitValue = resultHandler.getExitValue();
+
+      if (CommonUtils.notEmpty(outputStream.toByteArray())) {
+        try {
+          outputStream.flush();
+          String text = outputStream.toString();
+          if (notEmpty(text)) {
+            try {
+              text = text.replaceAll(String.format(REPLACE_REX, shellFile.getAbsolutePath()), "");
+              response.setMessage(text.substring(0, text.lastIndexOf(EXITCODE_KEY)));
+              exitValue = Integer.parseInt(text.substring(text.lastIndexOf(EXITCODE_KEY) + EXITCODE_KEY.length() + 1).trim());
+            } catch (IndexOutOfBoundsException e) {
+              response.setMessage(text);
+            }
+          }
+          outputStream.close();
+        } catch (Exception e) {
+          logger.error("[opencron]:error:{}", e);
+        }
+      }
+
+      if (Opencron.StatusCode.TIME_OUT.getValue() == response.getExitCode()) {
+        response.setSuccess(false).end();
+      } else {
+        if (CommonUtils.isEmpty(successExit)) {
+          response.setExitCode(exitValue).setSuccess(exitValue == Opencron.StatusCode.SUCCESS_EXIT.getValue()).end();
+        } else {
+          response.setExitCode(exitValue).setSuccess(successExit.equals(exitValue.toString())).end();
+        }
+      }
+
+    }
+
+    if (CommonUtils.notEmpty(shellFile)) {
+      shellFile.delete();
+    }
+
+    logger.info("[opencron]:execute result:{}", response.toString());
+
+    watchdog.stop();
+
+    return response;
+  }
+
+  @Override
+  public Response password(Request request) throws TException {
+    if (!this.password.equalsIgnoreCase(request.getPassword())) {
+      return errorPasswordResponse(request);
+    }
+
+    String newPassword = request.getParams().get("newPassword");
+    Response response = Response.response(request);
+
+    if (isEmpty(newPassword)) {
+      return response.setSuccess(false).setExitCode(Opencron.StatusCode.SUCCESS_EXIT.getValue()).setMessage("密码不能为空").end();
+    }
+    this.password = newPassword.toLowerCase().trim();
+
+    IOUtils.writeText(Configuration.OPENCRON_PASSWORD_FILE, this.password, "UTF-8");
+
+    return response.setSuccess(true).setExitCode(Opencron.StatusCode.SUCCESS_EXIT.getValue()).end();
+  }
+
+  @Override
+  public Response kill(Request request) throws TException {
+
+    if (!this.password.equalsIgnoreCase(request.getPassword())) {
+      return errorPasswordResponse(request);
+    }
+
+    String pid = request.getParams().get("pid");
+    logger.info("[opencron]:kill pid:{}", pid);
+
+    Response response = Response.response(request);
+    String text = CommandUtils.executeShell(Configuration.OPENCRON_KILL_SHELL, pid, EXITCODE_SCRIPT);
+    String message = "";
+    Integer exitVal = 0;
+
+    if (notEmpty(text)) {
+      try {
+        message = text.substring(0, text.lastIndexOf(EXITCODE_KEY));
+        exitVal = Integer.parseInt(text.substring(text.lastIndexOf(EXITCODE_KEY) + EXITCODE_KEY.length() + 1).trim());
+      } catch (StringIndexOutOfBoundsException e) {
+        message = text;
+      }
+    }
+
+    response.setExitCode(Opencron.StatusCode.ERROR_EXIT.getValue().equals(exitVal) ? Opencron.StatusCode.ERROR_EXIT.getValue() : Opencron.StatusCode.SUCCESS_EXIT.getValue()).setMessage(message).end();
+
+    logger.info("[opencron]:kill result:{}" + response);
+    return response;
+  }
+
+  @Override
+  public Response proxy(Request request) throws TException {
+    String proxyHost = request.getParams().get("proxyHost");
+    String proxyPort = request.getParams().get("proxyPort");
+    String proxyAction = request.getParams().get("proxyAction");
+    String proxyPassword = request.getParams().get("proxyPassword");
+
+    // 其他参数....
+    String proxyParams = request.getParams().get("proxyParams");
+    Map<String, String> params = new HashMap<String, String>(0);
+    if (CommonUtils.notEmpty(proxyParams)) {
+      params = (Map<String, String>) JSON.parse(proxyParams);
+    }
+
+    Request proxyReq = Request.request(proxyHost, toInt(proxyPort), Action.findByName(proxyAction), proxyPassword).setParams(params);
+
+    logger.info("[opencron]proxy params:{}", proxyReq.toString());
+
+    TTransport transport;
+    /**
+     * ping的超时设置为5毫秒,其他默认
+     */
+    if (proxyReq.getAction().equals(Action.PING)) {
+      proxyReq.getParams().put("proxy", "true");
+      transport = new TSocket(proxyReq.getHostName(), proxyReq.getPort(), 1000 * 5);
+    } else {
+      transport = new TSocket(proxyReq.getHostName(), proxyReq.getPort());
+    }
+    TProtocol protocol = new TBinaryProtocol(transport);
+    Opencron.Client client = new Opencron.Client(protocol);
+    transport.open();
+
+    Response response = null;
+    for (Method method : client.getClass().getMethods()) {
+      if (method.getName().equalsIgnoreCase(proxyReq.getAction().name())) {
+        try {
+          response = (Response) method.invoke(client, proxyReq);
+        } catch (Exception e) {
+          // proxy 执行失败,返回失败信息
+          response = Response.response(request);
+          response.setExitCode(Opencron.StatusCode.ERROR_EXIT.getValue()).setMessage("[opencron]:proxy error:" + e.getLocalizedMessage()).setSuccess(false).end();
+        }
+        break;
+      }
+    }
+    transport.flush();
+    transport.close();
+    return response;
+  }
+
+  @Override
+  public Response guid(Request request) throws TException {
+    if (!this.password.equalsIgnoreCase(request.getPassword())) {
+      return errorPasswordResponse(request);
+    }
+    String macId = null;
+    try {
+      // 多个网卡地址,按照字典顺序把他们连接在一块,用-分割.
+      List<String> macIds = MacUtils.getMacAddressList();
+      if (CommonUtils.notEmpty(macIds)) {
+        TreeSet<String> macSet = new TreeSet<String>(macIds);
+        macId = StringUtils.joinString(macSet, "-");
+      }
+    } catch (IOException e) {
+      logger.error("[opencron]:getMac error:{}", e);
+    }
+
+    Response response = Response.response(request).end();
+    if (notEmpty(macId)) {
+      return response.setMessage(macId).setSuccess(true).setExitCode(Opencron.StatusCode.SUCCESS_EXIT.getValue());
+    }
+    return response.setSuccess(false).setExitCode(Opencron.StatusCode.ERROR_EXIT.getValue());
+  }
+
+  /**
+   * 重启前先检查密码,密码不正确返回Response,密码正确则直接执行重启
+   * 
+   * @param request
+   * @return
+   * @throws TException
+   * @throws InterruptedException
+   */
+  @Override
+  public void restart(Request request) throws TException {
+
+  }
+
+  private Response errorPasswordResponse(Request request) {
+    return Response.response(request).setSuccess(false).setExitCode(Opencron.StatusCode.ERROR_PASSWORD.getValue()).setMessage(Opencron.StatusCode.ERROR_PASSWORD.getDescription()).end();
+  }
+
+  private Map<String, String> serializableToMap(Object obj) {
+    if (isEmpty(obj)) {
+      return Collections.EMPTY_MAP;
+    }
+
+    Map<String, String> resultMap = new HashMap<String, String>(0);
+    // 拿到属性器数组
+    try {
+      PropertyDescriptor[] pds = Introspector.getBeanInfo(obj.getClass()).getPropertyDescriptors();
+      for (int index = 0; pds.length > 1 && index < pds.length; index++) {
+        if (Class.class == pds[index].getPropertyType() || pds[index].getReadMethod() == null) {
+          continue;
+        }
+        Object value = pds[index].getReadMethod().invoke(obj);
+        if (notEmpty(value)) {
+          if (isPrototype(pds[index].getPropertyType())// java里的原始类型(去除自己定义类型)
+              || pds[index].getPropertyType().isPrimitive()// 基本类型
+              || ReflectUitls.isPrimitivePackageType(pds[index].getPropertyType()) || pds[index].getPropertyType() == String.class) {
+
+            resultMap.put(pds[index].getName(), value.toString());
+
+          } else {
+            resultMap.put(pds[index].getName(), JSON.toJSONString(value));
+          }
+        }
+      }
+    } catch (Exception e) {
+      e.printStackTrace();
+    }
+    return resultMap;
+  }
+
+  public boolean register() {
+    if (CommonUtils.notEmpty(Configuration.OPENCRON_SERVER)) {
+      String url = Configuration.OPENCRON_SERVER + "/agent/autoreg.do";
+      String mac = MacUtils.getMacAddress();
+      String agentPassword = IOUtils.readText(Configuration.OPENCRON_PASSWORD_FILE, "UTF-8").trim().toLowerCase();
+
+      Map<String, Object> params = new HashMap<String, Object>(0);
+      params.put("machineId", mac);
+      params.put("password", agentPassword);
+      params.put("port", Configuration.OPENCRON_PORT);
+      params.put("key", Configuration.OPENCRON_REGKEY);
+
+      logger.info("[opencron]agent auto register staring:{}", Configuration.OPENCRON_SERVER);
+      try {
+        String result = HttpClientUtils.httpPostRequest(url, params);
+        if (result == null) {
+          return false;
+        }
+        JSONObject jsonObject = JSON.parseObject(result);
+        if (jsonObject.get("status").toString().equals("200")) {
+          return true;
+        }
+        logger.error("[opencron:agent auto regsiter error:{}]", jsonObject.get("message"));
+      } catch (Exception e) {
+        e.printStackTrace();
         return false;
+      }
+    }
+    return false;
+  }
+
+  class AgentHeartBeat {
+
+    private String serverIp;
+    private String clientIp;
+    private Socket socket;
+    private boolean running = false;
+    private long lastSendTime;
+
+    public AgentHeartBeat(String serverIp, int port, String clientIp) throws IOException {
+      this.serverIp = serverIp;
+      this.clientIp = clientIp;
+      socket = new Socket(serverIp, port);
+      socket.setKeepAlive(true);
     }
 
-    class AgentHeartBeat {
+    public void start() throws IOException {
+      running = true;
+      lastSendTime = System.currentTimeMillis();
+      new Thread(new KeepAliveWatchDog()).start();
+    }
 
-        private String serverIp;
-        private String clientIp;
-        private Socket socket;
-        private boolean running = false;
-        private long lastSendTime;
+    public void stop() throws IOException {
+      if (running) {
+        running = false;
+        this.socket.close();
+        agentHeartBeatMap.remove(serverIp);
+        logger.info("[opencron]:heartBeat: stoped " + this.serverIp);
+      }
+    }
 
-        public AgentHeartBeat(String serverIp, int port, String clientIp) throws IOException {
-            this.serverIp = serverIp;
-            this.clientIp = clientIp;
-            socket = new Socket(serverIp, port);
-            socket.setKeepAlive(true);
-        }
+    public void sendMessage(Object obj) throws IOException {
+      ObjectOutputStream outputStream = new ObjectOutputStream(socket.getOutputStream());
+      outputStream.writeObject(obj);
+      outputStream.flush();
+    }
 
-        public void start() throws IOException {
-            running = true;
+    class KeepAliveWatchDog implements Runnable {
+      long checkDelay = 10;
+      long keepAliveDelay = 1000 * 5;
+
+      public void run() {
+        while (running) {
+          if (System.currentTimeMillis() - lastSendTime > keepAliveDelay) {
             lastSendTime = System.currentTimeMillis();
-            new Thread(new KeepAliveWatchDog()).start();
-        }
+            try {
+              AgentHeartBeat.this.sendMessage(AgentHeartBeat.this.clientIp);
+            } catch (IOException e) {
+              logger.debug("[opencron]:heartbeat error:{}", e.getMessage());
+              try {
+                int tryIndex = 0;
+                boolean autoReg = false;
+                // 失联后自动发起注册...
+                while (!autoReg || tryIndex < 3) {
+                  autoReg = register();
+                  ++tryIndex;
 
-        public void stop() throws IOException {
-            if (running) {
-                running = false;
-                this.socket.close();
-                agentHeartBeatMap.remove(serverIp);
-                logger.info("[opencron]:heartBeat: stoped " + this.serverIp);
-            }
-        }
+                  try {
+                    // sleep 1 second
+                    Thread.sleep(1 * 1000);
+                  } catch (Exception e1) {
+                    logger.error("KeepAliveWatchDog.run()->Sleep Error!", e1);
+                  }
 
-        public void sendMessage(Object obj) throws IOException {
-            ObjectOutputStream outputStream = new ObjectOutputStream(socket.getOutputStream());
-            outputStream.writeObject(obj);
-            outputStream.flush();
-        }
-
-        class KeepAliveWatchDog implements Runnable {
-            long checkDelay = 10;
-            long keepAliveDelay = 1000*5;
-
-            public void run() {
-                while (running) {
-                    if (System.currentTimeMillis() - lastSendTime > keepAliveDelay) {
-                        lastSendTime = System.currentTimeMillis();
-                        try {
-                            AgentHeartBeat.this.sendMessage(AgentHeartBeat.this.clientIp);
-                        } catch (IOException e) {
-                            logger.debug("[opencron]:heartbeat error:{}", e.getMessage());
-                            try {
-                                int tryIndex = 0;
-                                boolean autoReg = false;
-                                //失联后自动发起注册...
-                                while (!autoReg||tryIndex<3) {
-                                    autoReg = register();
-                                    ++tryIndex;
-									
-									try {
-										//sleep 1 second
-										Thread.sleep(1*1000);
-									} catch (Exception e1) {
-										logger.error("KeepAliveWatchDog.run()->Sleep Error!", e1);
-									}
-									
-                                }
-                                AgentHeartBeat.this.stop();
-                            } catch (Exception e1) {
-                                logger.debug("[opencron]:heartbeat error:{}", e1.getMessage());
-                            }
-                        }
-                    } else {
-                        try {
-                            Thread.sleep(checkDelay);
-                        } catch (InterruptedException e) {
-                            e.printStackTrace();
-                        }
-                    }
                 }
+                AgentHeartBeat.this.stop();
+              } catch (Exception e1) {
+                logger.debug("[opencron]:heartbeat error:{}", e1.getMessage());
+              }
             }
+          } else {
+            try {
+              Thread.sleep(checkDelay);
+            } catch (InterruptedException e) {
+              e.printStackTrace();
+            }
+          }
         }
-
+      }
     }
+
+  }
 
 }
